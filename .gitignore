@@ -1,0 +1,27 @@
+# ============ Unreal Engine ============
+# 빌드 산출물 / 캐시 (재생성되므로 커밋 제외)
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# ============ IDE / 에디터 ============
+.vs/
+.idea/
+.vscode/
+*.sln
+*.suo
+*.user
+*.vsconfig
+*.VC.db
+*.opensdf
+*.sdf
+*.opendb
+
+# ============ OS ============
+Desktop.ini
+Thumbs.db
+.DS_Store
+
+# 주의: Config/, Content/, Source/, *.uproject 는 반드시 커밋에 포함되어야 합니다.
