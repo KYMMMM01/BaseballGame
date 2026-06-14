@@ -1,5 +1,4 @@
 //BGFunctionLibrary.h
-//숫자 야구 게임 공용 헬퍼 (C++ 라이브러리)
 
 #pragma once
 
@@ -7,11 +6,7 @@
 #include "Engine/Engine.h"
 #include "GameFramework/Actor.h"
 
-/**
- * 네트워크 디버깅/출력용 정적 헬퍼 모음.
- * 클라이언트/리슨서버 : 화면에 메시지 출력
- * 데디케이티드 서버 : 로그로 출력
- */
+
 class BGFunctionLibrary
 {
 public:
