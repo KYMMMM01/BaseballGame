@@ -5,6 +5,7 @@
 #include "Game/BGGameStateBase.h"
 #include "Player/BGPlayerController.h"
 #include "Player/BGPlayerState.h"
+#include "TimerManager.h"
 
 ABGGameModeBase::ABGGameModeBase()
 {
@@ -47,6 +48,12 @@ void ABGGameModeBase::OnPostLogin(AController* NewPlayer)
 				BGGameState->MulticastRPCBroadcastSystemMessage(BGPlayerState->PlayerNameString + TEXT(" 님이 접속했습니다."));
 			}
 		}
+
+		//2명이 모이면 턴제 시작 (Player1부터)
+		if (bIsTurnActive == false && AllPlayerControllers.Num() >= 2)
+		{
+			StartTurn(0);
+		}
 	}
 }
 
@@ -60,6 +67,13 @@ void ABGGameModeBase::ProcessGuess(ABGPlayerController* InChattingPlayerControll
 	ABGPlayerState* BGPlayerState = InChattingPlayerController->GetPlayerState<ABGPlayerState>();
 	if (IsValid(BGPlayerState) == false)
 	{
+		return;
+	}
+
+	//턴제가 켜져 있으면, 자기 턴이 아닐 때 입력 거부
+	if (bIsTurnActive == true && InChattingPlayerController != GetCurrentTurnController())
+	{
+		SendSystemMessageToController(InChattingPlayerController, TEXT("아직 당신의 턴이 아닙니다."));
 		return;
 	}
 
@@ -90,9 +104,15 @@ void ABGGameModeBase::ProcessGuess(ABGPlayerController* InChattingPlayerControll
 		*BGPlayerState->GetPlayerInfoString(), *GuessString, *JudgeResultString);
 	BroadcastChatMessage(LineString);
 
-	//승리 / 무승부 판정 (1회만 호출)
+	//승리 / 무승부 판정 (라운드 종료 시 true). 종료면 ResetGame에서 턴이 다시 세팅된다.
 	const int32 StrikeCount = FCString::Atoi(*JudgeResultString.Left(1));
-	JudgeGame(InChattingPlayerController, StrikeCount);
+	const bool bRoundEnded = JudgeGame(InChattingPlayerController, StrikeCount);
+
+	//라운드가 계속되면 다음 플레이어로 턴을 넘긴다
+	if (bIsTurnActive == true && bRoundEnded == false)
+	{
+		AdvanceTurn();
+	}
 }
 
 FString ABGGameModeBase::GenerateSecretNumber() const
@@ -169,7 +189,7 @@ FString ABGGameModeBase::JudgeResult(const FString& InSecret, const FString& InG
 			const FString GuessChar = FString::Printf(TEXT("%c"), InGuess[i]);
 			if (InSecret.Contains(GuessChar) == true)
 			{
-				++BallCount; 
+				++BallCount;
 			}
 		}
 	}
@@ -190,7 +210,7 @@ void ABGGameModeBase::IncreaseGuessCount(ABGPlayerController* InChattingPlayerCo
 	}
 }
 
-void ABGGameModeBase::JudgeGame(ABGPlayerController* InChattingPlayerController, int32 InStrikeCount)
+bool ABGGameModeBase::JudgeGame(ABGPlayerController* InChattingPlayerController, int32 InStrikeCount)
 {
 	//승리
 	if (InStrikeCount == 3)
@@ -201,10 +221,10 @@ void ABGGameModeBase::JudgeGame(ABGPlayerController* InChattingPlayerController,
 		SetNotificationToAll(FString::Printf(TEXT("%s 님이 승리했습니다!"), *WinnerName));
 		BroadcastChatMessage(FString::Printf(TEXT("=== %s 님 승리! (정답: %s) ==="), *WinnerName, *SecretNumberString));
 		ResetGame();
-		return;
+		return true;
 	}
 
-	//무승부
+	//무승부 (모든 플레이어가 기회를 소진)
 	bool bIsDraw = true;
 	for (const TObjectPtr<ABGPlayerController>& PlayerController : AllPlayerControllers)
 	{
@@ -225,7 +245,10 @@ void ABGGameModeBase::JudgeGame(ABGPlayerController* InChattingPlayerController,
 		SetNotificationToAll(TEXT("무승부! 아무도 정답을 맞히지 못했습니다."));
 		BroadcastChatMessage(FString::Printf(TEXT("=== 무승부! (정답: %s) ==="), *SecretNumberString));
 		ResetGame();
+		return true;
 	}
+
+	return false;
 }
 
 void ABGGameModeBase::ResetGame()
@@ -250,6 +273,12 @@ void ABGGameModeBase::ResetGame()
 	}
 
 	BroadcastChatMessage(TEXT("새 라운드가 시작되었습니다! 새로운 정답을 맞혀보세요."));
+
+	//새 라운드는 Player1(인덱스 0)부터 시작
+	if (bIsTurnActive == true)
+	{
+		StartTurn(0);
+	}
 }
 
 void ABGGameModeBase::SendSystemMessageToController(ABGPlayerController* InTargetController, const FString& InMessageString)
@@ -281,5 +310,120 @@ void ABGGameModeBase::SetNotificationToAll(const FString& InMessageString)
 			//NotificationText는 Replicated => 각 클라의 공지 위젯 바인딩이 자동 갱신
 			PlayerController->NotificationText = MessageText;
 		}
+	}
+}
+
+ABGPlayerController* ABGGameModeBase::GetCurrentTurnController() const
+{
+	if (AllPlayerControllers.IsValidIndex(CurrentTurnIndex) == true)
+	{
+		return AllPlayerControllers[CurrentTurnIndex];
+	}
+	return nullptr;
+}
+
+void ABGGameModeBase::StartTurn(int32 InTurnIndex)
+{
+	if (AllPlayerControllers.IsValidIndex(InTurnIndex) == false)
+	{
+		return;
+	}
+
+	CurrentTurnIndex = InTurnIndex;
+	bIsTurnActive = true;
+
+	//현재 턴 플레이어 이름을 전원에게 안내
+	ABGPlayerController* TurnController = GetCurrentTurnController();
+	FString TurnName = TEXT("Someone");
+	if (IsValid(TurnController) == true)
+	{
+		ABGPlayerState* TurnState = TurnController->GetPlayerState<ABGPlayerState>();
+		if (IsValid(TurnState) == true)
+		{
+			TurnName = TurnState->PlayerNameString;
+		}
+		BroadcastChatMessage(FString::Printf(TEXT("== %s 님의 턴 =="), *TurnName));
+	}
+
+	//GameState에 현재 턴 정보 + 제한 시간 세팅 (전 클라 복제 => 타이머 위젯이 읽는다)
+	ABGGameStateBase* BGGameState = GetGameState<ABGGameStateBase>();
+	if (IsValid(BGGameState) == true)
+	{
+		BGGameState->CurrentTurnPlayerNameString = TurnName;
+		BGGameState->RemainingTime = TurnTimeLimit;
+	}
+
+	//1초마다 OnTurnTimerTick 호출(반복). 매 턴 새로 세팅해 시간을 초기화한다.
+	GetWorldTimerManager().ClearTimer(TurnTimerHandle);
+	GetWorldTimerManager().SetTimer(TurnTimerHandle, this, &ABGGameModeBase::OnTurnTimerTick, 1.0f, true);
+}
+
+void ABGGameModeBase::AdvanceTurn()
+{
+	const int32 PlayerCount = AllPlayerControllers.Num();
+	if (PlayerCount == 0)
+	{
+		return;
+	}
+
+	//기회가 남은 다음 플레이어를 찾아 턴을 넘긴다 (소진한 플레이어는 건너뜀)
+	for (int32 Step = 1; Step <= PlayerCount; ++Step)
+	{
+		const int32 NextIndex = (CurrentTurnIndex + Step) % PlayerCount;
+		ABGPlayerController* NextController = AllPlayerControllers[NextIndex];
+		if (IsValid(NextController) == false)
+		{
+			continue;
+		}
+
+		ABGPlayerState* NextState = NextController->GetPlayerState<ABGPlayerState>();
+		if (IsValid(NextState) == true && NextState->CurrentGuessCount < NextState->MaxGuessCount)
+		{
+			StartTurn(NextIndex);
+			return;
+		}
+	}
+}
+
+void ABGGameModeBase::OnTurnTimerTick()
+{
+	ABGGameStateBase* BGGameState = GetGameState<ABGGameStateBase>();
+	if (IsValid(BGGameState) == false)
+	{
+		return;
+	}
+
+	//남은 시간 1초 감소 (Replicated => 모든 클라의 타이머 위젯이 갱신됨)
+	BGGameState->RemainingTime -= 1;
+
+	//0이 되면 시간 초과 처리
+	if (BGGameState->RemainingTime <= 0)
+	{
+		HandleTurnTimeout();
+	}
+}
+
+void ABGGameModeBase::HandleTurnTimeout()
+{
+	ABGPlayerController* TimedOutController = GetCurrentTurnController();
+	if (IsValid(TimedOutController) == false)
+	{
+		return;
+	}
+
+	ABGPlayerState* TimedOutState = TimedOutController->GetPlayerState<ABGPlayerState>();
+	const FString TimedOutName = IsValid(TimedOutState) ? TimedOutState->PlayerNameString : TEXT("Someone");
+
+	//시간 초과 => 기회 1 소모 (아무도 안 치고 버티는 무한 루프 방지)
+	IncreaseGuessCount(TimedOutController);
+	BroadcastChatMessage(FString::Printf(TEXT("%s 님이 시간 초과로 기회를 잃었습니다."), *TimedOutName));
+
+	//0스트라이크이므로 승리는 불가, 무승부(전원 소진)만 검사된다
+	const bool bRoundEnded = JudgeGame(TimedOutController, 0);
+
+	//라운드가 계속되면 다음 플레이어로 턴을 넘긴다 (StartTurn에서 타이머가 재설정됨)
+	if (bIsTurnActive == true && bRoundEnded == false)
+	{
+		AdvanceTurn();
 	}
 }

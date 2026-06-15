@@ -16,6 +16,13 @@
 - 각 플레이어 3회 기회. 먼저 3S 달성 시 승리, 전원 소진 시 무승부. 이후 자동 리셋.
 - 예) 정답 386 → `167`은 `0S 1B`, `386`은 `3S 0B`(승리).
 
+## 도전 기능 (턴제 · 제한시간)
+
+- 2명이 접속하면 턴제가 시작되어 접속 순서대로 번갈아 입력한다. 자기 턴이 아니면 입력이 거부된다.
+- 턴마다 제한 시간(기본 30초)이 주어지며, 시간을 넘기면 기회 1회를 소진하고 다음 플레이어로 턴이 넘어간다.
+- 남은 시간과 현재 턴 플레이어 이름은 화면 위젯에 실시간 표시된다.
+- 제한 시간은 `ABGGameModeBase`의 `TurnTimeLimit`(BP 디테일에서 조절 가능)으로 설정한다.
+
 ## 실행 방법
 
 1. `BaseballGame.uproject` 우클릭 → Generate Visual Studio project files → 빌드.
@@ -26,8 +33,8 @@
 
 | 클래스 | 부모 | 역할 |
 |---|---|---|
-| `ABGGameModeBase` | `AGameModeBase` | 정답 생성·입력 검증·판정·승패·리셋 (서버 권위) |
-| `ABGGameStateBase` | `AGameStateBase` | 접속 알림 NetMulticast |
+| `ABGGameModeBase` | `AGameModeBase` | 정답 생성·입력 검증·판정·승패·리셋·턴/타이머 제어 (서버 권위) |
+| `ABGGameStateBase` | `AGameStateBase` | 접속 알림 NetMulticast, 턴 타이머 복제 |
 | `ABGPlayerController` | `APlayerController` | 입력 처리, Server/Client RPC, 공지 |
 | `ABGPlayerState` | `APlayerState` | 플레이어 이름·시도 횟수(복제) |
 | `UBGChatInput` | `UUserWidget` | 채팅 입력 위젯 |
@@ -38,7 +45,8 @@
 - 서버 권위: 정답과 모든 판정은 GameMode(서버)에만 존재하므로 클라이언트가 조작할 수 없다.
 - 전달 방식 구분
   - 채팅·판정 결과·안내: RPC (Server/Client), 접속 알림: NetMulticast
-  - 시도 횟수·공지: Property Replication (`CurrentGuessCount`, `NotificationText`)
+  - 시도 횟수·공지·타이머: Property Replication (`CurrentGuessCount`, `NotificationText`, `RemainingTime`)
+- 턴 타이머는 `GameState`에 두고 복제한다. GameState는 복제 빈도(NetUpdateFrequency)가 높아 1초 카운트다운이 부드럽게 동기화된다(복제 빈도가 낮은 PlayerState 대비).
 - 데이터 흐름
 
   ```
@@ -57,3 +65,5 @@
 - 입력 검증(3자리·숫자·중복) 사유별 안내 및 기회 소진 방어
 - PlayerState 기반 시도 횟수 관리 및 표시
 - 승리·무승부 공지 위젯, 게임 자동 리셋
+- 턴제 진행 및 자기 턴 외 입력 차단
+- 턴별 제한 시간 타이머(시간 초과 시 기회 소진·턴 전환)와 남은 시간·현재 턴 실시간 표시

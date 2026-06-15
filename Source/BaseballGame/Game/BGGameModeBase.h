@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "Engine/TimerHandle.h"
 #include "BGGameModeBase.generated.h"
 
 class ABGPlayerController;
@@ -43,10 +44,18 @@ protected:
 	FString GetValidationMessage(EGuessValidity InValidity) const; //검증 실패 안내문
 
 	void IncreaseGuessCount(ABGPlayerController* InChattingPlayerController);
-	void JudgeGame(ABGPlayerController* InChattingPlayerController, int32 InStrikeCount); //게임 결과 
-	void ResetGame();                                                         
+	bool JudgeGame(ABGPlayerController* InChattingPlayerController, int32 InStrikeCount); //게임 결과 (라운드 종료 시 true)
+	void ResetGame();
 
-	
+	//턴 제어 (도전 기능)
+	void StartTurn(int32 InTurnIndex); //해당 인덱스 플레이어의 턴 시작
+	void AdvanceTurn(); //기회가 남은 다음 플레이어로 턴을 넘김
+	ABGPlayerController* GetCurrentTurnController() const; //현재 턴 플레이어 컨트롤러
+
+	//턴 타이머 (도전 기능 - 제한 시간)
+	void OnTurnTimerTick(); //1초마다 호출 => 남은 시간 감소
+	void HandleTurnTimeout(); //시간 초과 => 기회 소모 후 턴 넘김
+
 	void SendSystemMessageToController(ABGPlayerController* InTargetController, const FString& InMessageString); //특정 1명에게
 	void BroadcastChatMessage(const FString& InMessageString); //전원에게 채팅 한 줄
 	void SetNotificationToAll(const FString& InMessageString); //전원 공지 위젯 갱신
@@ -58,4 +67,17 @@ protected:
 	//접속한 플레이어 컨트롤러 목록 (접속 순서 = 번호)
 	UPROPERTY()
 	TArray<TObjectPtr<ABGPlayerController>> AllPlayerControllers;
+
+	//현재 턴인 플레이어 인덱스 (AllPlayerControllers 기준)
+	int32 CurrentTurnIndex = 0;
+
+	//2명 이상 모여 턴제가 활성화됐는지
+	bool bIsTurnActive = false;
+
+	//턴당 제한 시간(초). BP 디테일 패널에서 조절 가능
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Baseball")
+	int32 TurnTimeLimit = 30;
+
+	//턴 타이머 핸들 (1초 간격 반복 호출)
+	FTimerHandle TurnTimerHandle;
 };
